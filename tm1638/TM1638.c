@@ -1,4 +1,5 @@
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "driver/gpio.h"
 #include "rom/ets_sys.h"
 #include "TM1638.h"
@@ -83,30 +84,32 @@ TM1638_PlatformInit(void)
   TM1638_SetGPIO_OUT(TM1638_STB_GPIO);
 }
 
-static void
-TM1638_PlatformDeInit(void *H)
-{
 #if CONFIG_SPI_INTERFACE  
-  TM1638_Handler_t * Handler;
-  Handler = (TM1638_Handler_t *)H;
-  spi_device_release_bus(Handler->SPIHandle);
-  spi_bus_remove_device(Handler->SPIHandle);
-  spi_bus_free(HSPI_HOST);
-#endif
+static void
+TM1638_PlatformDeInit(spi_device_handle_t SPIHandle)
+{
+  //spi_device_release_bus(SPIHandle);
+  //ESP_LOGI("TM1638", "SPI RELEASE BUS DONE");
+  spi_bus_remove_device(SPIHandle);
+  ESP_LOGI("TM1638", "SPI REMOVE DEVICE DONE");
+  spi_bus_free(TM1638_SPIHOST);
+  ESP_LOGI("TM1638", "SPI BUS FREE DONE");
+}
+#else
+static void
+TM1638_PlatformDeInit()
+{
   gpio_reset_pin(TM1638_CLK_GPIO);
   gpio_reset_pin(TM1638_STB_GPIO);
   gpio_reset_pin(TM1638_DIO_GPIO);
- 
 }
+#endif
 
 static uint8_t
 TM1638_DioRead(void)
 {
   uint8_t Result = 1;
-#if CONFIG_SPI_INTERFACE 
-#else 
   Result = gpio_get_level(TM1638_DIO_GPIO);
-#endif  
   return Result;
 }
 
@@ -189,18 +192,106 @@ TM1638_WriteBytes(TM1638_Handler_t *Handler, const uint8_t *Data, uint8_t NumOfB
 #endif
 }
 
+
+static void
+TM1638_SetMultipleDisplayRegister(TM1638_Handler_t *Handler, const uint8_t *DigitData, uint8_t StartAddr, uint8_t Count)
+{
+  uint8_t Data = DataInstructionSet | WriteDataToRegister |
+                 AutoAddressAdd | NormalMode;
+
+  TM1638_StartComunication(Handler);
+  TM1638_WriteBytes(Handler, &Data, 1);
+  TM1638_StopComunication(Handler);
+
+  Data = AddressInstructionSet | StartAddr;
+
+  TM1638_StartComunication(Handler);
+  TM1638_WriteBytes(Handler, &Data, 1);
+  TM1638_WriteBytes(Handler, DigitData, Count);
+  TM1638_StopComunication(Handler);
+}
+
+
+
+#if CONFIG_SPI_INTERFACE 
+void TM1638_SPIInit(TM1638_Handler_t *Handler, bool writeable){
+	esp_err_t ret;
+
+  gpio_reset_pin(TM1638_CLK_GPIO);
+  gpio_reset_pin(TM1638_DIO_GPIO);
+	
+  spi_bus_config_t spi_bus_config = {
+		.mosi_io_num = TM1638_DIO_GPIO,
+		.miso_io_num = TM1638_DIO_GPIO,
+		.sclk_io_num = TM1638_CLK_GPIO,
+		.quadwp_io_num = -1,
+		.quadhd_io_num = -1,
+		.max_transfer_sz = 0,
+		.flags = 0
+	};
+
+  if (writeable){
+    spi_bus_config.miso_io_num = -1;
+  } else {
+    spi_bus_config.mosi_io_num = -1;
+  }
+	
+	ret = spi_bus_initialize( TM1638_SPIHOST, &spi_bus_config, SPI_DMA_CH_AUTO );
+	assert(ret==ESP_OK);
+  ESP_LOGI("TM1638", "SPI BUS INITIALIZED");
+
+  spi_device_interface_config_t devcfg;
+	memset( &devcfg, 0, sizeof( spi_device_interface_config_t ) );
+	devcfg.clock_speed_hz = CONFIG_SPI_FREQUENCY;
+	devcfg.spics_io_num = -1;
+	devcfg.queue_size = 1;
+	devcfg.mode = 3;
+  if (writeable){
+	  devcfg.flags = SPI_DEVICE_BIT_LSBFIRST;
+  }else{
+    devcfg.flags = 0;
+  }
+
+	spi_device_handle_t handle;
+	ret = spi_bus_add_device( TM1638_SPIHOST, &devcfg, &handle);
+	assert(ret==ESP_OK);
+  ESP_LOGI("TM1638", "SPI DEVICE ADDED TO BUS");
+	
+	Handler->SPIHandle = handle;
+}
+#endif
+
+
 static void
 TM1638_ReadBytes(TM1638_Handler_t *Handler, uint8_t *Data, uint8_t NumOfBytes)
 {
 #if CONFIG_SPI_INTERFACE 	
-    spi_transaction_t SPITransaction = {
-        .cmd = 0x00,
-        .rxlength = 8 * NumOfBytes,
-        .flags = 0,
-        .tx_buffer = NULL,
-        .rx_buffer = Data,
-    };
-		spi_device_transmit( Handler->SPIHandle, &SPITransaction );
+  uint8_t RecieveByte;
+  // Reconfigure SPI to READ
+  Handler->PlatformDeInit(Handler->SPIHandle);
+  TM1638_SPIInit(Handler, false);
+  
+  vTaskDelay(1);
+
+  spi_transaction_t SPITransaction = {
+    .cmd = 0x00,
+    .rxlength = 8,
+    .length = 8,
+    .flags = 0,
+    .tx_buffer = NULL,
+    .rx_buffer = &RecieveByte,
+    .user = NULL
+  };
+
+  for(uint8_t i=0;i<NumOfBytes;i++){
+    spi_device_polling_transmit( Handler->SPIHandle, &SPITransaction );
+    vTaskDelay(1);
+    Data[i] = RecieveByte;
+  }
+  
+  // Reconfigure SPI back to WRITE
+  Handler->PlatformDeInit(Handler->SPIHandle);
+  TM1638_SPIInit(Handler, true);
 
 #else
   uint8_t i, j, Buff;
@@ -227,24 +318,6 @@ TM1638_ReadBytes(TM1638_Handler_t *Handler, uint8_t *Data, uint8_t NumOfBytes)
 }
 
 static void
-TM1638_SetMultipleDisplayRegister(TM1638_Handler_t *Handler, const uint8_t *DigitData, uint8_t StartAddr, uint8_t Count)
-{
-  uint8_t Data = DataInstructionSet | WriteDataToRegister |
-                 AutoAddressAdd | NormalMode;
-
-  TM1638_StartComunication(Handler);
-  TM1638_WriteBytes(Handler, &Data, 1);
-  TM1638_StopComunication(Handler);
-
-  Data = AddressInstructionSet | StartAddr;
-
-  TM1638_StartComunication(Handler);
-  TM1638_WriteBytes(Handler, &Data, 1);
-  TM1638_WriteBytes(Handler, DigitData, Count);
-  TM1638_StopComunication(Handler);
-}
-
-static void
 TM1638_ScanKeyRegs(TM1638_Handler_t *Handler, uint8_t *KeyRegs)
 {
   uint8_t Data = DataInstructionSet | ReadKeyScanData | AutoAddressAdd | NormalMode;
@@ -254,7 +327,6 @@ TM1638_ScanKeyRegs(TM1638_Handler_t *Handler, uint8_t *KeyRegs)
   TM1638_ReadBytes(Handler, KeyRegs, 4);
   TM1638_StopComunication(Handler);
 }
-
 
 
 /**
@@ -283,6 +355,7 @@ TM1638_Result_t TM1638_Init(TM1638_Handler_t *Handler, uint8_t Type)
   Handler->DioRead = TM1638_DioRead;
   Handler->StbWrite = TM1638_StbWrite;
   Handler->DisplayType = TM1638DisplayTypeComCathode;
+  Handler->SelfHandler = Handler;
 
   for (uint8_t i = 0; i < 16; i++)
   {
@@ -296,40 +369,9 @@ TM1638_Result_t TM1638_Init(TM1638_Handler_t *Handler, uint8_t Type)
   }
 
   Handler->PlatformInit();
-  
+
 #if CONFIG_SPI_INTERFACE 
-  gpio_reset_pin(TM1638_CLK_GPIO);
-  gpio_reset_pin(TM1638_DIO_GPIO);
-	esp_err_t ret;
-	
-  spi_bus_config_t spi_bus_config = {
-		.mosi_io_num = TM1638_DIO_GPIO,
-		.miso_io_num = -1,
-		.sclk_io_num = TM1638_CLK_GPIO,
-		.quadwp_io_num = -1,
-		.quadhd_io_num = -1,
-		.max_transfer_sz = 0,
-		.flags = 0
-	};
-	
-	ret = spi_bus_initialize( HSPI_HOST, &spi_bus_config, SPI_DMA_CH_AUTO );
-	assert(ret==ESP_OK);
-  ESP_LOGI("TM1638", "SPI BUS INITIALIZED");
-
-  spi_device_interface_config_t devcfg;
-	memset( &devcfg, 0, sizeof( spi_device_interface_config_t ) );
-	devcfg.clock_speed_hz = CONFIG_SPI_FREQUENCY; //1000000; // 1MHz
-	devcfg.spics_io_num = -1;
-	devcfg.queue_size = 1;
-	devcfg.mode = 3;
-	devcfg.flags = SPI_DEVICE_BIT_LSBFIRST;
-
-	spi_device_handle_t handle;
-	ret = spi_bus_add_device( HSPI_HOST, &devcfg, &handle);
-	assert(ret==ESP_OK);
-  ESP_LOGI("TM1638", "SPI DEVICE ADDED");
-	
-	Handler->SPIHandle = handle;
+  TM1638_SPIInit(Handler, true);
 #endif  
   
   return TM1638_OK;
@@ -344,7 +386,11 @@ TM1638_Result_t TM1638_Init(TM1638_Handler_t *Handler, uint8_t Type)
 TM1638_Result_t
 TM1638_DeInit(TM1638_Handler_t *Handler)
 {
-  Handler->PlatformDeInit(Handler);
+#if CONFIG_SPI_INTERFACE   
+  Handler->PlatformDeInit(Handler->SPIHandle);
+#else
+  Handler->PlatformDeInit();
+#endif  
   return TM1638_OK;
 }
 
@@ -659,6 +705,7 @@ TM1638_ScanKeys(TM1638_Handler_t *Handler, uint32_t *Keys)
   uint8_t Kn = 0x01;
 
   TM1638_ScanKeyRegs(Handler, KeyRegs);
+  ESP_LOGI("TM1638", "DATAxx: %d %d %d %d", KeyRegs[0], KeyRegs[1], KeyRegs[2], KeyRegs[3]);
 
   for (uint8_t i = 0; i < 3; i++)
   {

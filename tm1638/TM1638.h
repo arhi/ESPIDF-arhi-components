@@ -16,6 +16,18 @@ extern "C" {
 #define TM1638_DIO_GPIO     CONFIG_TM1638_DIO_GPIO
 #define TM1638_STB_GPIO     CONFIG_TM1638_STB_GPIO
 
+#ifdef CONFIG_IDF_TARGET_ESP32
+#define TM1638_SPIHOST HSPI_HOST
+#elif CONFIG_IDF_TARGET_ESP32S2
+#define TM1638_SPIHOST SPI2_HOST
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define TM1638_SPIHOST SPI2_HOST
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define TM1638_SPIHOST SPI2_HOST
+#endif
+
+
+
 #define TM1638_SUPPORT_COM_ANODE  1
 #define TM1638DisplayTypeComCathode 0
 #define TM1638DisplayTypeComAnode   1
@@ -42,9 +54,13 @@ typedef struct TM1638_Handler_s
 {
   // Initialize the platform-dependent layer
   void (*PlatformInit)(void);
-  // Uninitialize the platform-dependent layer
-  void (*PlatformDeInit)(void *);
 
+#if CONFIG_SPI_INTERFACE    
+  // Uninitialize the platform-dependent layer
+  void (*PlatformDeInit)(spi_device_handle_t SPIHandle);
+#else
+  void (*PlatformDeInit)();
+#endif
   // Config the GPIO that connected to DIO PIN of SHT1x as output
   void (*DioConfigOut)(void);
   // Config the GPIO that connected to DIO PIN of SHT1x as input
@@ -64,6 +80,8 @@ typedef struct TM1638_Handler_s
   void (*DelayUs)(uint8_t);
 
   uint8_t DisplayType;
+  struct TM1638_Handler_s * SelfHandler;
+
 #if CONFIG_SPI_INTERFACE   
   spi_device_handle_t SPIHandle;
 #endif
