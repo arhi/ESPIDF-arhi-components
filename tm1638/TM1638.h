@@ -16,6 +16,45 @@ extern "C" {
 #define TM1638_DIO_GPIO     CONFIG_TM1638_DIO_GPIO
 #define TM1638_STB_GPIO     CONFIG_TM1638_STB_GPIO
 
+#ifdef CONFIG_IDF_TARGET_ESP32
+#define TM1638_SPIHOST HSPI_HOST
+#elif CONFIG_IDF_TARGET_ESP32S2
+#define TM1638_SPIHOST SPI2_HOST
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define TM1638_SPIHOST SPI2_HOST
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define TM1638_SPIHOST SPI2_HOST
+#endif
+
+/**
+ * @brief LED & KEY panel configuration for 8x LED, 8x 7SEG, 8x button 
+ * 
+ */
+
+#define TM1638_MASK_S1 0x010000 // 0000 0001
+#define TM1638_MASK_S2 0x040000 // 0000 0100
+#define TM1638_MASK_S3 0x100000 // 0001 0000
+#define TM1638_MASK_S4 0x400000 // 0100 0000
+#define TM1638_MASK_S5 0x020000 // 0000 0010
+#define TM1638_MASK_S6 0x080000 // 0000 1000
+#define TM1638_MASK_S7 0x200000 // 0010 0000
+#define TM1638_MASK_S8 0x800000 // 1000 0000
+
+#define TM1638_LED1    0*2+1
+#define TM1638_LED2    1*2+1
+#define TM1638_LED3    2*2+1
+#define TM1638_LED4    3*2+1
+#define TM1638_LED5    4*2+1
+#define TM1638_LED6    5*2+1
+#define TM1638_LED7    6*2+1
+#define TM1638_LED8    7*2+1
+#define TM1638_LED(x)  ((x-1)*2+1)
+
+/**
+ * @brief 
+ * 
+ */
+
 #define TM1638_SUPPORT_COM_ANODE  1
 #define TM1638DisplayTypeComCathode 0
 #define TM1638DisplayTypeComAnode   1
@@ -42,15 +81,23 @@ typedef struct TM1638_Handler_s
 {
   // Initialize the platform-dependent layer
   void (*PlatformInit)(void);
+
+#if CONFIG_SPI_INTERFACE    
   // Uninitialize the platform-dependent layer
-  void (*PlatformDeInit)(void *);
+  void (*PlatformDeInit)(spi_device_handle_t SPIHandle);
+#else
+  void (*PlatformDeInit)();
+#endif
 
   // Config the GPIO that connected to DIO PIN of SHT1x as output
   void (*DioConfigOut)(void);
+
   // Config the GPIO that connected to DIO PIN of SHT1x as input
   void (*DioConfigIn)(void);
+
   // Set level of the GPIO that connected to DIO PIN of SHT1x
   void (*DioWrite)(uint8_t);
+
   // Read the GPIO that connected to DIO PIN of SHT1x
   uint8_t (*DioRead)(void);
 
@@ -64,6 +111,8 @@ typedef struct TM1638_Handler_s
   void (*DelayUs)(uint8_t);
 
   uint8_t DisplayType;
+  struct TM1638_Handler_s * SelfHandler;
+
 #if CONFIG_SPI_INTERFACE   
   spi_device_handle_t SPIHandle;
 #endif
@@ -98,8 +147,7 @@ typedef enum TM1638_Result_e
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful.
  */
-TM1638_Result_t
-TM1638_Init(TM1638_Handler_t *Handler, uint8_t Type);
+TM1638_Result_t TM1638_Init(TM1638_Handler_t *Handler, uint8_t Type);
 
 
 /**
@@ -108,8 +156,7 @@ TM1638_Init(TM1638_Handler_t *Handler, uint8_t Type);
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful.
  */
-TM1638_Result_t
-TM1638_DeInit(TM1638_Handler_t *Handler);
+TM1638_Result_t TM1638_DeInit(TM1638_Handler_t *Handler);
  
 
 
@@ -134,9 +181,7 @@ TM1638_DeInit(TM1638_Handler_t *Handler);
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful
  */
-TM1638_Result_t
-TM1638_ConfigDisplay(TM1638_Handler_t *Handler,
-                     uint8_t Brightness, uint8_t DisplayState);
+TM1638_Result_t TM1638_ConfigDisplay(TM1638_Handler_t *Handler, uint8_t Brightness, uint8_t DisplayState);
 
 
 /**
@@ -153,9 +198,7 @@ TM1638_ConfigDisplay(TM1638_Handler_t *Handler,
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful
  */
-TM1638_Result_t
-TM1638_SetSingleDigit(TM1638_Handler_t *Handler,
-                      uint8_t DigitData, uint8_t DigitPos);
+TM1638_Result_t TM1638_SetSingleDigit(TM1638_Handler_t *Handler, uint8_t DigitData, uint8_t DigitPos);
 
 
 /**
@@ -173,9 +216,7 @@ TM1638_SetSingleDigit(TM1638_Handler_t *Handler,
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful
  */
-TM1638_Result_t
-TM1638_SetMultipleDigit(TM1638_Handler_t *Handler, const uint8_t *DigitData,
-                        uint8_t StartAddr, uint8_t Count);
+TM1638_Result_t TM1638_SetMultipleDigit(TM1638_Handler_t *Handler, const uint8_t *DigitData, uint8_t StartAddr, uint8_t Count);
 
 
 /**
@@ -192,9 +233,7 @@ TM1638_SetMultipleDigit(TM1638_Handler_t *Handler, const uint8_t *DigitData,
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful
  */
-TM1638_Result_t
-TM1638_SetSingleDigit_HEX(TM1638_Handler_t *Handler,
-                          uint8_t DigitData, uint8_t DigitPos);
+TM1638_Result_t TM1638_SetSingleDigit_HEX(TM1638_Handler_t *Handler, uint8_t DigitData, uint8_t DigitPos);
 
 
 /**
@@ -214,11 +253,7 @@ TM1638_SetSingleDigit_HEX(TM1638_Handler_t *Handler,
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful
  */
-TM1638_Result_t
-TM1638_SetMultipleDigit_HEX(TM1638_Handler_t *Handler, const uint8_t *DigitData,
-                            uint8_t StartAddr, uint8_t Count);
-
-
+TM1638_Result_t TM1638_SetMultipleDigit_HEX(TM1638_Handler_t *Handler, const uint8_t *DigitData, uint8_t StartAddr, uint8_t Count);
 
 
 /**
@@ -239,9 +274,7 @@ TM1638_SetMultipleDigit_HEX(TM1638_Handler_t *Handler, const uint8_t *DigitData,
  * @retval TM1638_Result_t
  *         - TM1638_OK: Operation was successful
  */
-TM1638_Result_t
-TM1638_ScanKeys(TM1638_Handler_t *Handler, uint32_t *Keys);
-
+TM1638_Result_t TM1638_ScanKeys(TM1638_Handler_t *Handler, uint32_t *Keys);
 
 
 #ifdef __cplusplus
