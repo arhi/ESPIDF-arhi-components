@@ -4,6 +4,7 @@
 #include "rom/ets_sys.h"
 #include "TM1638.h"
 #include "esp_log.h"
+#include <math.h>
 
 #if CONFIG_SPI_INTERFACE
   #include "driver/spi_master.h"
@@ -662,5 +663,39 @@ TM1638_Result_t TM1638_ScanKeys(TM1638_Handler_t *Handler, uint32_t *Keys){
 
   *Keys = KeysBuff;
 
+  return TM1638_OK;
+}
+
+/**
+ * @brief print functions for LED&KEY module
+ * 
+ * @param Handler 
+ * @param n number to print
+ * @param decimalDigits how many decimal digits to show
+ * @return TM1638_Result_t 
+ */
+TM1638_Result_t TM1638_LK_PrintFloat(TM1638_Handler_t *Handler, float n, int8_t decimalDigits){
+  uint32_t wholeNumber;
+  if (decimalDigits > 7) decimalDigits = 7;
+  wholeNumber = n * ((decimalDigits > 0) ? pow(10, decimalDigits) : 1);
+  return TM1638_LK_Print(Handler, wholeNumber, decimalDigits);
+}
+
+
+/**
+ * @brief print functions for LED&KEY module
+ * 
+ * @param Handler 
+ * @param n number to print
+ * @param decimalDigits where to put decimal point (-1 to not show decimal point at all)
+ * @return TM1638_Result_t 
+ */
+TM1638_Result_t TM1638_LK_Print(TM1638_Handler_t *Handler, uint32_t n, int8_t decimalDigits){
+  uint8_t digit;
+  for (uint8_t i = 0; i<8; i++){
+    digit = n % 10;
+    n = n / 10;
+    TM1638_SetSingleDigit_HEX(Handler, digit | (decimalDigits==i?TM1638DecimalPoint:0), (7-i)*2);
+  }
   return TM1638_OK;
 }

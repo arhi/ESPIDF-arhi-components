@@ -50,6 +50,11 @@ extern "C" {
 #define TM1638_LED8    7*2+1
 #define TM1638_LED(x)  ((x-1)*2+1)
 
+#define TM1638_LED_ON   0x01
+#define TM1638_LED_OFF  0x00
+
+
+
 /**
  * @brief 
  * 
@@ -275,6 +280,13 @@ TM1638_Result_t TM1638_SetMultipleDigit_HEX(TM1638_Handler_t *Handler, const uin
  *         - TM1638_OK: Operation was successful
  */
 TM1638_Result_t TM1638_ScanKeys(TM1638_Handler_t *Handler, uint32_t *Keys);
+
+
+
+
+
+TM1638_Result_t TM1638_LK_PrintFloat(TM1638_Handler_t *Handler, float n, int8_t decimalDigits);
+TM1638_Result_t TM1638_LK_Print(TM1638_Handler_t *Handler, uint32_t n, int8_t decimalDigits);
 
 
 #ifdef __cplusplus
